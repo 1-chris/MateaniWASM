@@ -1,0 +1,160 @@
+﻿@using SkiaSharp
+@using SkiaSharp.Views.Blazor
+@using System.Globalization
+
+<div class="canvasControls">
+    <button @onclick="ToggleRenderLoop">render on/off</button>
+    <label>@_enableRenderLoop.ToString()</label>
+    <label for="colorPicker">Color:</label>
+    <input type="color" id="colorPicker" value="@_selectedColorHex" @oninput="OnColorChanged"/>
+    <label for="alphaRange">Alpha:</label>
+    <input type="range" id="alphaRange" min="0" max="255" value="@_colorAlpha.ToString()" @oninput="OnAlphaChanged"/>
+    <label for="alphaRange">Size:</label>
+    <input type="range" id="alphaRange" min="0" max="64" @bind="_selectedBrushSize"/>
+</div>
+
+
+<div style="width:800px; height:640px;" class="canvas">
+    @if (!_initializationComplete)
+    {
+        <h2>loading...</h2>
+    }
+    else
+    {
+        <SKCanvasView OnPaintSurface="PaintSurface" EnableRenderLoop="@_enableRenderLoop" style="width: 100%; height: 100%" @onmousemove="OnMouseMovement" @onmousedown="OnMouseDown" @onmouseup="OnMouseUp"/>
+    }
+</div>
+
+@code {
+    private bool _initializationComplete;
+    private int _tickIndex = 1;
+    private double _mouseOffsetX;
+    private double _mouseOffsetY;
+    private bool _leftMouseDown;
+    private bool _rightMouseDown;
+    private bool _middleMouseDown;
+    private bool _anyMouseDown;
+    private List<SKPaint>? _paints = new();
+    private SKPaint? _activePaint = new();
+
+    private bool _enableRenderLoop;
+    private bool _toggleRenderLoopEnabled = true;
+
+    private uint _selectedColorArgb;
+    private string? _selectedColorHex = "#7FFF00";
+    private int _colorAlpha = 128;
+
+    private int _selectedBrushSize = 10;
+
+    protected override async void OnInitialized()
+    {
+        _enableRenderLoop = true;
+        uint argb = uint.Parse("667FFF00", NumberStyles.HexNumber);
+        var paint = new SKPaint
+        {
+            Color = new SKColor(argb),
+            StrokeWidth = _selectedBrushSize
+        };
+        _paints.Add(paint);
+        _activePaint = paint;
+        Console.WriteLine("paint added");
+        
+        RenderLoopEnabler();
+        _initializationComplete = true;
+    }
+
+    private void ToggleRenderLoop()
+    {
+        _toggleRenderLoopEnabled = !_toggleRenderLoopEnabled;
+    }
+
+    private async Task RenderLoopEnabler()
+    {
+        while (true)
+        {
+            _enableRenderLoop = _anyMouseDown && _toggleRenderLoopEnabled;
+            await Task.Delay(200);
+       }
+    }
+    
+    private void OnColorChanged(ChangeEventArgs e)
+    {
+        // cannot overload method so this is a workaround
+        if (e?.Value?.ToString() != null) _selectedColorHex = e.Value.ToString();
+        
+        Console.WriteLine($"OnColorChanged called {_selectedColorHex}");
+        var colorHex = _selectedColorHex?.Replace("#", ""); // Remove #
+
+        if (colorHex != null && colorHex.Length == 6) // Check to ensure it's a valid color value
+        {
+            var finalColorHex = _colorAlpha.ToString("X2") + colorHex; // Add alpha at the start
+            Console.WriteLine($"Final color with alpha: {finalColorHex}");
+            uint argb = uint.Parse(finalColorHex, NumberStyles.HexNumber);
+
+            if (_activePaint != null) _activePaint.Color = new SKColor(argb);
+        }
+        else
+        {
+            Console.WriteLine($"Invalid colorHex value: {colorHex}");
+        }
+    }
+    
+    private void OnAlphaChanged(ChangeEventArgs e)
+    {
+        _colorAlpha = Convert.ToInt32(e.Value);
+        Console.WriteLine($"Alpha changed: {_colorAlpha}");
+        OnColorChanged(null);
+    }
+
+    private void OnMouseDown(MouseEventArgs args)
+    {
+        switch (args.Button)
+        {
+            case 0:
+                _leftMouseDown = true;
+                break;
+            case 1:
+                _middleMouseDown = true;
+                break;
+            case 2:
+                _rightMouseDown = true;
+                break;
+        }
+
+        _anyMouseDown = _rightMouseDown || _middleMouseDown || _leftMouseDown;
+    }
+
+    private void OnMouseUp(MouseEventArgs args)
+    {
+        _leftMouseDown = false;
+        _middleMouseDown = false;
+        _rightMouseDown = false;
+        _anyMouseDown = false;
+    }
+    
+    private void OnMouseMovement(MouseEventArgs args)
+    {
+        _mouseOffsetX = args.OffsetX;
+        _mouseOffsetY = args.OffsetY;
+    }
+
+    private async void PaintSurface(SKPaintSurfaceEventArgs e)
+    {
+        //Console.WriteLine($"current tick: {_tickIndex}");
+        var surface = e.Surface;
+        if (_tickIndex == 1)
+        {
+            surface.Canvas.Clear(SKColors.Bisque);
+        }
+        _tickIndex++;
+
+        if (_leftMouseDown)
+        {
+            surface.Canvas.DrawCircle(
+                new SKPoint((float)_mouseOffsetX, (float)_mouseOffsetY),
+                _selectedBrushSize,
+                _activePaint
+                );
+        }
+    }
+}
