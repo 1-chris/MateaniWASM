@@ -7,7 +7,7 @@ public class DrawHub : Hub
 {
     public async Task SendCommand(DrawingCommand command)
     {
-        Console.WriteLine($"Server received command with color: {command.Color:X8}");
+        // Console.WriteLine($"Server received command with color: {command.Color:X8}");
         await Clients.All.SendAsync("ReceiveCommand", command);
     }
 }

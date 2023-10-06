@@ -57,7 +57,7 @@
 
         _hubConnection.On<DrawingCommand>("ReceiveCommand", (command) =>
         {
-            Console.WriteLine($"Client received command with color: {command.Color:X8}");
+            // Console.WriteLine($"Client received command with color: {command.Color:X8}");
             _commands.Add(command);
             StateHasChanged();
         });
@@ -159,7 +159,7 @@
             _commands.Add(command);
             if (_hubConnection is not null)
             {
-                Console.WriteLine($"Sending command with color: {command.Color:X8}");
+                // Console.WriteLine($"Sending command with color: {command.Color:X8}");
                 await _hubConnection.SendAsync("SendCommand", command);
             }
             
