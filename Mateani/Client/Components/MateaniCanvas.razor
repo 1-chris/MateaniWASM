@@ -1,6 +1,8 @@
 ﻿@using SkiaSharp
 @using SkiaSharp.Views.Blazor
 @using System.Globalization
+@using Mateani.Shared.Classes
+@using Mateani.Shared.Extensions
 
 <div class="canvasControls">
     <button @onclick="ToggleRenderLoop">render on/off</button>
@@ -21,13 +23,13 @@
     }
     else
     {
-        <SKCanvasView OnPaintSurface="PaintSurface" EnableRenderLoop="@_enableRenderLoop" style="width: 100%; height: 100%" @onmousemove="OnMouseMovement" @onmousedown="OnMouseDown" @onmouseup="OnMouseUp"/>
+        <SKGLView OnPaintSurface="PaintSurface" EnableRenderLoop="@_enableRenderLoop" style="width: 100%; height: 100%" @onmousemove="OnMouseMovement" @onmousedown="OnMouseDown" @onmouseup="OnMouseUp"/>
+        
     }
 </div>
 
 @code {
     private bool _initializationComplete;
-    private int _tickIndex = 1;
     private double _mouseOffsetX;
     private double _mouseOffsetY;
     private bool _leftMouseDown;
@@ -36,6 +38,7 @@
     private bool _anyMouseDown;
     private List<SKPaint>? _paints = new();
     private SKPaint? _activePaint = new();
+    private List<DrawingCommand> _commands = new();
 
     private bool _enableRenderLoop;
     private bool _toggleRenderLoopEnabled = true;
@@ -43,7 +46,6 @@
     private uint _selectedColorArgb;
     private string? _selectedColorHex = "#7FFF00";
     private int _colorAlpha = 128;
-
     private int _selectedBrushSize = 10;
 
     protected override async void OnInitialized()
@@ -72,7 +74,7 @@
     {
         while (true)
         {
-            _enableRenderLoop = _anyMouseDown && _toggleRenderLoopEnabled;
+            _enableRenderLoop = _toggleRenderLoopEnabled;
             await Task.Delay(200);
        }
     }
@@ -120,7 +122,6 @@
                 _rightMouseDown = true;
                 break;
         }
-
         _anyMouseDown = _rightMouseDown || _middleMouseDown || _leftMouseDown;
     }
 
@@ -136,25 +137,35 @@
     {
         _mouseOffsetX = args.OffsetX;
         _mouseOffsetY = args.OffsetY;
+
+        if (_anyMouseDown && _activePaint is not null)
+        {
+            var command = new DrawingCommand
+            {
+                X = (float)_mouseOffsetX,
+                Y = (float)_mouseOffsetY,
+                Size = _selectedBrushSize,
+                Color = _activePaint.Color.ToUint()
+            };
+            
+            _commands.Add(command);
+            StateHasChanged();
+        }
     }
 
-    private async void PaintSurface(SKPaintSurfaceEventArgs e)
+    private async void PaintSurface(SKPaintGLSurfaceEventArgs e)
     {
-        //Console.WriteLine($"current tick: {_tickIndex}");
         var surface = e.Surface;
-        if (_tickIndex == 1)
+        surface.Canvas.Clear(SKColors.Bisque);
+        
+        foreach (var command in _commands)
         {
-            surface.Canvas.Clear(SKColors.Bisque);
-        }
-        _tickIndex++;
-
-        if (_leftMouseDown)
-        {
-            surface.Canvas.DrawCircle(
-                new SKPoint((float)_mouseOffsetX, (float)_mouseOffsetY),
-                _selectedBrushSize,
-                _activePaint
-                );
+            var paint = new SKPaint
+            {
+                Color = command.Color,
+                StrokeWidth = command.Size
+            };
+            surface.Canvas.DrawCircle(command.X, command.Y, command.Size, paint);
         }
     }
 }

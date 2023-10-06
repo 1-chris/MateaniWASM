@@ -7,7 +7,7 @@ Example attempt project which uses SKCanvases (from SkiaSharp library) to allow 
  - Transparency picker
  - Brush size picker
 
-Also attempting to develop 'multi-user' sessions (no example available yet).
+Also attempting to develop 'multi-user' sessions (example: https://mateani-webapp.azurewebsites.net/).
 
 Since this app is looking at mouse-based controls it doesn't currently work on mobile.
 

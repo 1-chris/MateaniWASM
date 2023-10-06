@@ -9,12 +9,17 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="7.0.11"/>
         <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="7.0.11" PrivateAssets="all"/>
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="7.0.11" />
         <PackageReference Include="Microsoft.Extensions.Http" Version="7.0.0"/>
         <PackageReference Include="SkiaSharp.Views.Blazor" Version="2.88.6" />
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\Shared\Mateani.Shared.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Classes\" />
     </ItemGroup>
 
 </Project>

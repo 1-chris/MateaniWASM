@@ -1,13 +1,12 @@
 ﻿@using SkiaSharp
 @using SkiaSharp.Views.Blazor
 @using System.Globalization
-
-@inject HttpClient HttpClient
-
+@using Mateani.Shared.Classes
+@using Mateani.Shared.Extensions
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager Navigation
 
 <div class="canvasControls">
-    <button @onclick="ToggleRenderLoop">render on/off</button>
-    <label>@_enableRenderLoop.ToString()</label>
     <label for="colorPicker">Color:</label>
     <input type="color" id="colorPicker" value="@_selectedColorHex" @oninput="OnColorChanged"/>
     <label for="alphaRange">Alpha:</label>
@@ -24,14 +23,13 @@
     }
     else
     {
-        <SKCanvasView OnPaintSurface="PaintSurface" EnableRenderLoop="@_enableRenderLoop" style="width: 100%; height: 100%" @onmousemove="OnMouseMovement" @onmousedown="OnMouseDown" @onmouseup="OnMouseUp"/>
+        <SKGLView OnPaintSurface="PaintSurface" EnableRenderLoop="true" style="width: 100%; height: 100%" @onmousemove="OnMouseMovement" @onmousedown="OnMouseDown" @onmouseup="OnMouseUp"/>
+        
     }
 </div>
 
 @code {
-    private Guid ClientGuid { get; set; } = Guid.NewGuid();
     private bool _initializationComplete;
-    private int _tickIndex = 1;
     private double _mouseOffsetX;
     private double _mouseOffsetY;
     private bool _leftMouseDown;
@@ -41,20 +39,41 @@
     private List<SKPaint>? _paints = new();
     private SKPaint? _activePaint = new();
 
-    private bool _enableRenderLoop;
-    private bool _toggleRenderLoopEnabled = false;
-    private bool _lastUserDoesNotMatchCurrentClient;
-    private string _lastUserGuid = Guid.Empty.ToString();
-
     private uint _selectedColorArgb;
     private string? _selectedColorHex = "#7FFF00";
     private int _colorAlpha = 128;
-
     private int _selectedBrushSize = 10;
+
+    private HubConnection? _hubConnection;
+    private List<DrawingCommand> _commands = new();
 
     protected override async void OnInitialized()
     {
-        _enableRenderLoop = true;
+        _initializationComplete = true;
+        Console.WriteLine(Navigation.ToAbsoluteUri("/drawhub"));
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/drawhub"))
+            .Build();
+
+        _hubConnection.On<DrawingCommand>("ReceiveCommand", (command) =>
+        {
+            Console.WriteLine($"Client received command with color: {command.Color:X8}");
+            _commands.Add(command);
+            StateHasChanged();
+        });
+
+        var startConnectionTask = _hubConnection.StartAsync();
+        if (await Task.WhenAny(startConnectionTask, Task.Delay(5000)) == startConnectionTask)
+        {
+            // Connection established within 5 seconds
+            Console.WriteLine("Connection started successfully.");
+        }
+        else
+        {
+            // Connection did not establish within 5 seconds
+            Console.WriteLine("Connection start timed out.");
+        }
+        
         uint argb = uint.Parse("667FFF00", NumberStyles.HexNumber);
         var paint = new SKPaint
         {
@@ -65,30 +84,12 @@
         _activePaint = paint;
         Console.WriteLine("paint added");
         
-        RenderLoopEnabler();
         _initializationComplete = true;
     }
-
-    private void ToggleRenderLoop()
-    {
-        _toggleRenderLoopEnabled = !_toggleRenderLoopEnabled;
-    }
-
-    private async Task RenderLoopEnabler()
-    {
-        while (true)
-        {
-            var _lastUserGuid = await GetLastClientGuid();
-            _lastUserDoesNotMatchCurrentClient = _lastUserGuid != ClientGuid.ToString();
-            _enableRenderLoop = (_anyMouseDown || _lastUserDoesNotMatchCurrentClient && _lastUserGuid != Guid.Empty.ToString()) && _toggleRenderLoopEnabled;
-            Console.WriteLine($"{_lastUserGuid}; _enableRenderLoop = {_enableRenderLoop}; _lastUserDoesNotMatchCurrentClient = {_lastUserDoesNotMatchCurrentClient}");
-            await Task.Delay(3000);
-       }
-    }
-
+    
     private void OnColorChanged(ChangeEventArgs e)
     {
-    // cannot overload method so this is a workaround
+        // cannot overload method so this is a workaround
         if (e?.Value?.ToString() != null) _selectedColorHex = e.Value.ToString();
         
         Console.WriteLine($"OnColorChanged called {_selectedColorHex}");
@@ -129,7 +130,6 @@
                 _rightMouseDown = true;
                 break;
         }
-
         _anyMouseDown = _rightMouseDown || _middleMouseDown || _leftMouseDown;
     }
 
@@ -141,103 +141,45 @@
         _anyMouseDown = false;
     }
     
-    private void OnMouseMovement(MouseEventArgs args)
+    private async void OnMouseMovement(MouseEventArgs args)
     {
         _mouseOffsetX = args.OffsetX;
         _mouseOffsetY = args.OffsetY;
+
+        if (_anyMouseDown && _activePaint is not null)
+        {
+            var command = new DrawingCommand
+            {
+                X = (float)_mouseOffsetX,
+                Y = (float)_mouseOffsetY,
+                Size = _selectedBrushSize,
+                Color = _activePaint.Color.ToUint()
+            };
+            
+            _commands.Add(command);
+            if (_hubConnection is not null)
+            {
+                Console.WriteLine($"Sending command with color: {command.Color:X8}");
+                await _hubConnection.SendAsync("SendCommand", command);
+            }
+            
+            StateHasChanged();
+        }
     }
 
-    private async void PaintSurface(SKPaintSurfaceEventArgs e)
+    private async void PaintSurface(SKPaintGLSurfaceEventArgs e)
     {
-        
-        Console.WriteLine($"current tick: {_tickIndex}");
         var surface = e.Surface;
-        if (_tickIndex == 1)
+        surface.Canvas.Clear(SKColors.Bisque);
+        
+        foreach (var command in _commands)
         {
-            surface.Canvas.Clear(SKColors.Bisque);
-            try
+            var paint = new SKPaint
             {
-                var serverImage = await GetImageFromServer();
-                if (serverImage != null)
-                {
-                    if (_lastUserGuid != Guid.Empty.ToString()) surface.Canvas.DrawImage(serverImage, 0, 0);
-                    Console.WriteLine("Applied initial image from server");
-                }
-                else
-                {
-                    Console.WriteLine("Server image is null");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.Message);
-            }
+                Color = command.Color,
+                StrokeWidth = command.Size
+            };
+            surface.Canvas.DrawCircle(command.X, command.Y, command.Size, paint);
         }
-        _tickIndex++;
-
-        if (_leftMouseDown)
-        {
-            surface.Canvas.DrawCircle(
-                new SKPoint((float)_mouseOffsetX, (float)_mouseOffsetY),
-                _selectedBrushSize,
-                _activePaint
-                );
-        }
-
-        if (_tickIndex % 100 == 0)
-        {
-            Console.WriteLine("updating server");
-            ServerUpdate(surface.Snapshot(), ClientGuid);
-        }
-        
-        if (_lastUserDoesNotMatchCurrentClient && _lastUserGuid != Guid.Empty.ToString())
-        {
-            Console.WriteLine($"{_lastUserDoesNotMatchCurrentClient}; {_lastUserGuid}");
-            var serverImage = await GetImageFromServer();
-            if (serverImage is not null)
-            {
-                surface.Canvas.Clear(SKColors.Bisque);
-                surface.Canvas.DrawImage(serverImage, 0, 0);
-            }
-        }
-        
-        
     }
-    
-
-    private async Task ServerUpdate(SKImage image, Guid clientGuid)
-    {
-        var imageBytes = image.Encode(SKEncodedImageFormat.Png, 100).ToArray();
-        
-        var data = new
-        {
-            Image = imageBytes,
-            ClientGuid = clientGuid
-        };
-        
-        _ = await HttpClient.PostAsJsonAsync("/imageUpdate", data);
-    }
-
-    private async Task<string> GetLastClientGuid()
-    {
-        return await HttpClient.GetStringAsync("/lastUser");
-    }
-    
-    private async Task<SKImage> GetImageFromServer()
-    {
-        var response = await HttpClient.GetAsync("/getImage");
-        if (response.IsSuccessStatusCode)
-        {
-            var imageBytes = response.Content.ReadAsStream();
-            Console.WriteLine($"Received image of size: {imageBytes.Length} bytes");
-        
-            var image = SKImage.FromEncodedData(imageBytes);
-            return image;
-        }
-    
-        Console.WriteLine("Failed to retrieve the image");
-        return null;
-    }
-
-
 }

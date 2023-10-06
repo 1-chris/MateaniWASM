@@ -1,15 +1,19 @@
 using Microsoft.AspNetCore.ResponseCompression;
-using SkiaSharp;
+using Mateani.Server.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
-byte[] currentImage = null;
-Guid lastClientGuid = Guid.Empty;
-
 builder.Services.AddControllersWithViews();
 builder.Services.AddRazorPages();
+builder.Services.AddSignalR();
+builder.Services.AddResponseCompression(options =>
+{
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+        new[] { "application/octet-stream" });
+});
 
 var app = builder.Build();
+app.UseResponseCompression();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -25,40 +29,11 @@ else
 app.UseHttpsRedirection();
 app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
-
 app.UseRouting();
 
+app.MapHub<DrawHub>("/drawhub");
 app.MapRazorPages();
 app.MapControllers();
 app.MapFallbackToFile("index.html");
 
-app.MapPost("/imageUpdate", (ImageData data) =>
-{
-    currentImage = data.Image;
-    lastClientGuid = data.ClientGuid;
-    Console.WriteLine($"Received image from client: {lastClientGuid} Length: {currentImage.Length}");
-    return "OK";
-});
-
-app.MapGet("/lastUser", () =>
-{
-    Console.WriteLine("received lastuser req");
-    return lastClientGuid.ToString();
-});
-
-app.MapGet("/getImage", () =>
-{
-    if (currentImage is null) return Results.NotFound("No image available");
-
-    var stream = new MemoryStream(currentImage);
-    return Results.Stream(stream, "image/png");
-});
-
-
 app.Run();
-
-public class ImageData
-{
-    public byte[] Image { get; set; }
-    public Guid ClientGuid { get; set; }
-}
