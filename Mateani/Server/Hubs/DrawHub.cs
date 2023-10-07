@@ -10,17 +10,15 @@ public class DrawHub : Hub
 {
     private readonly DrawGroupManager _groupManager;
     
-    private static SemaphoreSlim _semaphoreSlim = new(1, 1);
-    private static List<DrawingCommand> _commands = new();
-    private static byte[] _cachedImage;
     private static ConcurrentDictionary<string, byte[]> _groupImages = new();
     private static ConcurrentDictionary<string, ConcurrentQueue<DrawingCommand>> _groupDrawCommands = new();
+
+    private static SemaphoreSlim _semaphoreSlim = new(1, 1);
 
     public DrawHub(DrawGroupManager groupManager)
     {
         _groupManager = groupManager;
     }
-    
     
     public async Task SendCommand(string groupName, DrawingCommand command)
     {
@@ -29,7 +27,6 @@ public class DrawHub : Hub
         
         await Clients.GroupExcept(groupName, Context.ConnectionId).SendAsync("ReceiveCommand", command);
     }
-
 
     public async Task JoinGroup(string groupName)
     {
@@ -40,31 +37,18 @@ public class DrawHub : Hub
         await _semaphoreSlim.WaitAsync();  
         try
         {
-            byte[] cachedImage;
             ConcurrentQueue<DrawingCommand> groupCommands;
-            _groupImages.TryGetValue(groupName, out cachedImage);
             _groupDrawCommands.TryGetValue(groupName, out groupCommands);
             
-            if (cachedImage?.Length > 0)
-            {
-                await Clients.Caller.SendAsync("ReceiveImage", cachedImage);
-            }
-            
-            if (groupCommands?.Count > 100)
-            {
-                UpdateCachedGroupImage(groupName);
-                _groupImages.TryGetValue(groupName, out cachedImage);
-                await Clients.Caller.SendAsync("ReceiveImage", cachedImage);
-                groupCommands.Clear();
-            }
-
             if (groupCommands?.Count > 0)
             {
-                foreach (var command in groupCommands)
-                {
-                    await Clients.Caller.SendAsync("ReceiveCommand", command);
-                }
+                UpdateCachedGroupImage(groupName);
+                groupCommands.Clear();
             }
+            
+            byte[] cachedImage;
+            _groupImages.TryGetValue(groupName, out cachedImage);
+            await Clients.Caller.SendAsync("ReceiveImage", cachedImage);
         }
         finally
         {
@@ -82,6 +66,8 @@ public class DrawHub : Hub
     {
         var cachedImage = _groupImages.GetValueOrDefault(groupName);
         var groupCommands = _groupDrawCommands.GetValueOrDefault(groupName);
+
+        if (groupCommands.Count == 0) return; // no updates required
         
         if (cachedImage == null)
         {
@@ -105,8 +91,9 @@ public class DrawHub : Hub
             using (var bitmap = SKBitmap.Decode(stream))
             using (var canvas = new SKCanvas(bitmap))
             {
-                var commands = _groupDrawCommands.GetValueOrDefault(groupName);
-                foreach (var command in _commands)
+                if (groupCommands.Count == 0) return;
+                
+                foreach (var command in groupCommands)
                 {
                     using var paint = new SKPaint
                     {
