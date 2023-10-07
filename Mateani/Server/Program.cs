@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.ResponseCompression;
 using Mateani.Server.Hubs;
+using Mateani.Server.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +12,8 @@ builder.Services.AddResponseCompression(options =>
     options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
         new[] { "application/octet-stream" });
 });
+
+builder.Services.AddSingleton<DrawGroupManager>();
 
 var app = builder.Build();
 app.UseResponseCompression();
@@ -32,6 +35,9 @@ app.UseStaticFiles();
 app.UseRouting();
 
 app.MapHub<DrawHub>("/drawhub");
+app.MapGet("/getgroups", (DrawGroupManager groupManager) => groupManager.GetGroups());
+
+
 app.MapRazorPages();
 app.MapControllers();
 app.MapFallbackToFile("index.html");

@@ -1,42 +1,66 @@
-﻿using Mateani.Shared.Classes;
+﻿using System.Collections.Concurrent;
+using Mateani.Shared.Classes;
 using Microsoft.AspNetCore.SignalR;
 using SkiaSharp;
+using Mateani.Server.Services;
 
 namespace Mateani.Server.Hubs;
 
 public class DrawHub : Hub
 {
-    private static SemaphoreSlim _semaphoreSlim = new SemaphoreSlim(1, 1);
+    private readonly DrawGroupManager _groupManager;
+    
+    private static SemaphoreSlim _semaphoreSlim = new(1, 1);
     private static List<DrawingCommand> _commands = new();
     private static byte[] _cachedImage;
-    public async Task SendCommand(DrawingCommand command)
+    private static ConcurrentDictionary<string, byte[]> _groupImages = new();
+    private static ConcurrentDictionary<string, ConcurrentQueue<DrawingCommand>> _groupDrawCommands = new();
+
+    public DrawHub(DrawGroupManager groupManager)
     {
-        // Console.WriteLine($"Server received command with color: {command.Color:X8}");
-        _commands.Add(command);
-        await Clients.Others.SendAsync("ReceiveCommand", command);
+        _groupManager = groupManager;
+    }
+    
+    
+    public async Task SendCommand(string groupName, DrawingCommand command)
+    {
+        var commands = _groupDrawCommands.GetOrAdd(groupName, new ConcurrentQueue<DrawingCommand>());
+        commands.Enqueue(command);
+        
+        await Clients.GroupExcept(groupName, Context.ConnectionId).SendAsync("ReceiveCommand", command);
     }
 
-    public override async Task OnConnectedAsync()
+
+    public async Task JoinGroup(string groupName)
     {
+        _groupManager.AddToGroup(Context.ConnectionId, groupName);
+        await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
+        
         // skiasharp library makes things weird with asp.net
         await _semaphoreSlim.WaitAsync();  
         try
         {
-            if (_cachedImage?.Length > 0)
+            byte[] cachedImage;
+            ConcurrentQueue<DrawingCommand> groupCommands;
+            _groupImages.TryGetValue(groupName, out cachedImage);
+            _groupDrawCommands.TryGetValue(groupName, out groupCommands);
+            
+            if (cachedImage?.Length > 0)
             {
-                await Clients.Caller.SendAsync("ReceiveImage", _cachedImage);
+                await Clients.Caller.SendAsync("ReceiveImage", cachedImage);
             }
             
-            if (_commands.Count > 100)
+            if (groupCommands?.Count > 100)
             {
-                UpdateCachedImage();
-                await Clients.Caller.SendAsync("ReceiveImage", _cachedImage);
-                _commands.Clear();
+                UpdateCachedGroupImage(groupName);
+                _groupImages.TryGetValue(groupName, out cachedImage);
+                await Clients.Caller.SendAsync("ReceiveImage", cachedImage);
+                groupCommands.Clear();
             }
 
-            if (_commands.Count > 0)
+            if (groupCommands?.Count > 0)
             {
-                foreach (var command in _commands)
+                foreach (var command in groupCommands)
                 {
                     await Clients.Caller.SendAsync("ReceiveCommand", command);
                 }
@@ -46,31 +70,42 @@ public class DrawHub : Hub
         {
             _semaphoreSlim.Release();  
         }
-
-        await base.OnConnectedAsync();
     }
 
-    private void UpdateCachedImage()
+    public async Task LeaveGroup(string groupName)
     {
-        if (_cachedImage == null)
+        _groupManager.RemoveFromGroup(Context.ConnectionId, groupName);
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, groupName);
+    }
+    
+    private void UpdateCachedGroupImage(string groupName)
+    {
+        var cachedImage = _groupImages.GetValueOrDefault(groupName);
+        var groupCommands = _groupDrawCommands.GetValueOrDefault(groupName);
+        
+        if (cachedImage == null)
         {
-            using (SKImage image = CreateImageFromCommands(_commands))
+            using (SKImage image = CreateImageFromCommands(groupCommands))
             {
-                if (image != null)
+                using (var encodedImage = image.Encode(SKEncodedImageFormat.Png, 100))
                 {
-                    using (var encodedImage = image.Encode(SKEncodedImageFormat.Png, 100))
+                    _groupImages.AddOrUpdate(groupName, encodedImage.ToArray(), (_, image) =>
                     {
-                        _cachedImage = encodedImage.ToArray();
-                    }
+                        image = encodedImage.ToArray();
+                        return image;
+                    });
                 }
             }
+
+            Console.WriteLine($"null image, cached image created for {groupName}");
         }
         else
         {
-            using (var stream = new MemoryStream(_cachedImage))
+            using (var stream = new MemoryStream(cachedImage))
             using (var bitmap = SKBitmap.Decode(stream))
             using (var canvas = new SKCanvas(bitmap))
             {
+                var commands = _groupDrawCommands.GetValueOrDefault(groupName);
                 foreach (var command in _commands)
                 {
                     using var paint = new SKPaint
@@ -84,14 +119,17 @@ public class DrawHub : Hub
                 using (var image = SKImage.FromBitmap(bitmap))
                 using (var encodedImage = image.Encode(SKEncodedImageFormat.Png, 100))
                 {
-                    _cachedImage = encodedImage.ToArray();
+                    var updateSuccess = _groupImages.TryUpdate(groupName, encodedImage.ToArray(), cachedImage);
+                    Console.WriteLine($"update success: {updateSuccess}");
                 }
             }
+            Console.WriteLine($"existing image, cached image updated for {groupName}");
         }
     }
+    
 
 
-    private SKImage CreateImageFromCommands(List<DrawingCommand> commands)
+    private SKImage CreateImageFromCommands(ConcurrentQueue<DrawingCommand> commands)
     {
         int width = 1000;
         int height = 840;

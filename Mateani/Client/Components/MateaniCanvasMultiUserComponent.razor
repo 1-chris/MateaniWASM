@@ -5,6 +5,7 @@
 @using Mateani.Shared.Extensions
 @using Microsoft.AspNetCore.SignalR.Client
 @inject NavigationManager Navigation
+@inject IJSRuntime Js
 
 <div class="canvasControls">
     <label for="colorPicker">Color:</label>
@@ -38,17 +39,20 @@
     private int _selectedBrushSize = 10;
 
     private HubConnection? _hubConnection;
+    private string _groupName = "test123";
     private List<DrawingCommand> _commands = new();
     private SKBitmap _backgroundImage;
 
     protected override async void OnInitialized()
     {
-        
         Console.WriteLine(Navigation.ToAbsoluteUri("/drawhub"));
         _hubConnection = new HubConnectionBuilder()
             .WithUrl(Navigation.ToAbsoluteUri("/drawhub"))
             .Build();
 
+        string roomQueryParam = GetQueryParm("room");
+        if (roomQueryParam != "") _groupName = roomQueryParam;
+        
         _hubConnection.On<DrawingCommand>("ReceiveCommand", (command) =>
         {
             // Console.WriteLine($"Client received command with color: {command.Color:X8}");
@@ -57,6 +61,7 @@
         });
         _hubConnection.On<byte[]>("ReceiveImage", (imageBytes) =>
         {
+            Console.WriteLine("Received cached image from server.");
             using (var stream = new MemoryStream(imageBytes))
             {
                 _backgroundImage = SKBitmap.Decode(stream);
@@ -70,12 +75,16 @@
         {
             // Connection established within 5 seconds
             Console.WriteLine("Connection started successfully.");
+            
+            await _hubConnection.SendAsync("JoinGroup", _groupName);
+            Console.WriteLine($"Joined group {_groupName}");
         }
         else
         {
             // Connection did not establish within 5 seconds
             Console.WriteLine("Connection start timed out.");
         }
+        
         
         uint argb = uint.Parse("667FFF00", NumberStyles.HexNumber);
         var paint = new SKPaint
@@ -163,7 +172,7 @@
             if (_hubConnection is not null)
             {
                 // Console.WriteLine($"Sending command with color: {command.Color:X8}");
-                await _hubConnection.SendAsync("SendCommand", command);
+                await _hubConnection.SendAsync("SendCommand", _groupName, command);
             }
             
             StateHasChanged();
@@ -198,5 +207,12 @@
             _commands.RemoveAt(i);
         }
 
+    }
+    
+    string GetQueryParm(string parmName)
+    {
+        var uriBuilder = new UriBuilder(Navigation.Uri);
+        var q = System.Web.HttpUtility.ParseQueryString(uriBuilder.Query);
+        return q[parmName] ?? "";
     }
 }
