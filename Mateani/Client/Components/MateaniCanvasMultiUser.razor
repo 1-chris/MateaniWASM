@@ -16,18 +16,13 @@
 </div>
 
 <div style="width:1000px; height:840px;" class="canvas">
-    @if (!_initializationComplete)
-    {
-        <h2>loading...</h2>
-    }
-    else
-    {
-        <SKGLView OnPaintSurface="PaintSurface" EnableRenderLoop="true" style="width: 100%; height: 100%" @onmousemove="OnMouseMovement" @onmousedown="OnMouseDown" @onmouseup="OnMouseUp"/>
-    }
+    <SKCanvasView OnPaintSurface="PaintSurface" EnableRenderLoop="true" style="width: 100%; height: 100%" @onmousemove="OnMouseMovement" @onmousedown="OnMouseDown" @onmouseup="OnMouseUp"/>
 </div>
 
 @code {
     private bool _initializationComplete;
+    private bool _firstFrame = true;
+    private bool _backgroundPainted;
     private double _mouseOffsetX;
     private double _mouseOffsetY;
     private bool _leftMouseDown;
@@ -44,10 +39,11 @@
 
     private HubConnection? _hubConnection;
     private List<DrawingCommand> _commands = new();
+    private SKBitmap _backgroundImage;
 
     protected override async void OnInitialized()
     {
-        _initializationComplete = true;
+        
         Console.WriteLine(Navigation.ToAbsoluteUri("/drawhub"));
         _hubConnection = new HubConnectionBuilder()
             .WithUrl(Navigation.ToAbsoluteUri("/drawhub"))
@@ -59,6 +55,15 @@
             _commands.Add(command);
             StateHasChanged();
         });
+        _hubConnection.On<byte[]>("ReceiveImage", (imageBytes) =>
+        {
+            using (var stream = new MemoryStream(imageBytes))
+            {
+                _backgroundImage = SKBitmap.Decode(stream);
+            }
+            StateHasChanged();
+        });
+
 
         var startConnectionTask = _hubConnection.StartAsync();
         if (await Task.WhenAny(startConnectionTask, Task.Delay(5000)) == startConnectionTask)
@@ -165,19 +170,33 @@
         }
     }
 
-    private async void PaintSurface(SKPaintGLSurfaceEventArgs e)
+    private async void PaintSurface(SKPaintSurfaceEventArgs e)
     {
         var surface = e.Surface;
-        surface.Canvas.Clear(SKColors.Bisque);
-        
-        foreach (var command in _commands)
+
+        if (_initializationComplete && _firstFrame)
         {
+            surface.Canvas.Clear(SKColors.Bisque);
+            _firstFrame = false;
+        }
+        
+        if (_backgroundImage != null && !_backgroundPainted)
+        {
+            surface.Canvas.DrawBitmap(_backgroundImage, new SKRect(0, 0, 1000, 840));
+            _backgroundPainted = true;
+        }
+        
+        for (int i = 0; i < _commands.Count;)
+        {
+            var command = _commands[i];
             var paint = new SKPaint
             {
                 Color = command.Color,
                 StrokeWidth = command.Size
             };
             surface.Canvas.DrawCircle(command.X, command.Y, command.Size, paint);
+            _commands.RemoveAt(i);
         }
+
     }
 }
