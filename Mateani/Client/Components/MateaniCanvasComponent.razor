@@ -44,14 +44,14 @@
     private bool _toggleRenderLoopEnabled = true;
 
     private uint _selectedColorArgb;
-    private string? _selectedColorHex = "#7FFF00";
-    private int _colorAlpha = 128;
-    private int _selectedBrushSize = 10;
+    private string? _selectedColorHex = "#1f1d1d";
+    private int _colorAlpha = 255;
+    private int _selectedBrushSize = 5;
 
     protected override async void OnInitialized()
     {
         _enableRenderLoop = true;
-        uint argb = uint.Parse("667FFF00", NumberStyles.HexNumber);
+        uint argb = uint.Parse("ff1f1d1d", NumberStyles.HexNumber);
         var paint = new SKPaint
         {
             Color = new SKColor(argb),
