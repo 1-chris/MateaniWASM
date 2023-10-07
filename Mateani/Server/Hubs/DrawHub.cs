@@ -18,6 +18,7 @@ public class DrawHub : Hub
 
     public override async Task OnConnectedAsync()
     {
+        // skiasharp library makes things weird with asp.net
         await _semaphoreSlim.WaitAsync();  
         try
         {
