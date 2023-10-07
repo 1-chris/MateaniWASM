@@ -37,17 +37,15 @@ public class DrawHub : Hub
         await _semaphoreSlim.WaitAsync();  
         try
         {
-            ConcurrentQueue<DrawingCommand> groupCommands;
-            _groupDrawCommands.TryGetValue(groupName, out groupCommands);
+            _groupDrawCommands.TryGetValue(groupName, out ConcurrentQueue<DrawingCommand> groupCommands);
             
             if (groupCommands?.Count > 0)
             {
                 UpdateCachedGroupImage(groupName);
                 groupCommands.Clear();
             }
-            
-            byte[] cachedImage;
-            _groupImages.TryGetValue(groupName, out cachedImage);
+
+            _groupImages.TryGetValue(groupName, out var cachedImage);
             await Clients.Caller.SendAsync("ReceiveImage", cachedImage);
         }
         finally

@@ -23,7 +23,7 @@
     }
     else
     {
-        <SKGLView OnPaintSurface="PaintSurface" EnableRenderLoop="@_enableRenderLoop" style="width: 100%; height: 100%" @onmousemove="OnMouseMovement" @onmousedown="OnMouseDown" @onmouseup="OnMouseUp"/>
+        <SKGLView class="canvas" OnPaintSurface="PaintSurface" EnableRenderLoop="@_enableRenderLoop" style="width: 100%; height: 95%" @onmousemove="OnMouseMovement" @onmousedown="OnMouseDown" @onmouseup="OnMouseUp" @ontouchmove="OnTouchMove"/>
         
     }
 </div>
@@ -108,6 +108,23 @@
         OnColorChanged(null);
     }
 
+    private async void OnTouchMove(TouchEventArgs e)
+    {
+        var firstTouch = e.Touches.First();
+        _mouseOffsetX = firstTouch.ClientX;
+        _mouseOffsetY = firstTouch.ClientY;
+        var command = new DrawingCommand
+        {
+            X = (float)_mouseOffsetX,
+            Y = (float)_mouseOffsetY,
+            Size = _selectedBrushSize,
+            Color = _activePaint.Color.ToUint()
+        };
+            
+        _commands.Add(command);
+        StateHasChanged();
+    }
+    
     private void OnMouseDown(MouseEventArgs args)
     {
         switch (args.Button)
